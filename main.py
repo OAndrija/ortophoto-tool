@@ -9,7 +9,7 @@ from tkfontawesome import icon_to_image
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("dark-blue")
 
-class ImageViewerApp(ctk.CTk):
+class OrthophotoTool(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Orthophoto Tool")
