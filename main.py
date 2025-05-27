@@ -13,7 +13,7 @@ class ImageViewerApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Orthophoto Tool")
-        self.geometry("1200x1000")
+        self.geometry("1200x1200")
         self.resizable(False, False)
 
         self.app_state = "selecting_images"
@@ -54,10 +54,19 @@ class ImageViewerApp(ctk.CTk):
 
         self.done_button = ctk.CTkButton(self.button_frame, text="Done", command=self.on_done)
         self.done_button.grid(row=0, column=2, padx=20, pady=10)
+        self.done_button.grid_remove()
 
         self.merge_button = ctk.CTkButton(self.button_frame, text="Merge Images", command=self.merge_images)
         self.merge_button.grid(row=0, column=3, padx=20, pady=10)
-        self.merge_button.configure(state="disabled")
+        self.merge_button.grid_remove()
+
+        self.save_button = ctk.CTkButton(self.button_frame, text="Save Image", command=self.save_image)
+        self.save_button.grid(row=0, column=4, padx=20, pady=10)
+        self.save_button.grid_remove()
+
+        self.reset_button = ctk.CTkButton(self.button_frame, text="Reset", command=self.reset_app)
+        self.reset_button.grid(row=0, column=5, padx=20, pady=10)
+        self.reset_button.grid_remove()
 
     def update_instruction(self, text):
         self.instruction_label.configure(text=text)
@@ -67,22 +76,26 @@ class ImageViewerApp(ctk.CTk):
         if filepath:
             self.left_image_array = self.read_image(filepath)
             self.display_left_image()
+            self.check_show_done_button()
 
     def load_right_image(self):
         filepath = filedialog.askopenfilename(filetypes=[("Image Files", "*.jpg *.png *.jpeg *.tif")])
         if filepath:
             self.right_image_array = self.read_image(filepath)
             self.display_right_image()
+            self.check_show_done_button()
+
+    def check_show_done_button(self):
+        if self.left_image_array is not None and self.right_image_array is not None:
+            self.done_button.grid()
+            self.update_instruction("Click Done to proceed.")
 
     def on_done(self):
-        if self.left_image_array is not None and self.right_image_array is not None:
-            self.app_state = "selecting_points_left"
-            self.load_left_button.grid_forget()
-            self.load_right_button.grid_forget()
-            self.done_button.configure(state="disabled")
-            self.update_instruction("Click 2 tie points on the LEFT image.")
-        else:
-            self.update_instruction("❗ Load both images before continuing.")
+        self.app_state = "selecting_points_left"
+        self.load_left_button.grid_remove()
+        self.load_right_button.grid_remove()
+        self.done_button.grid_remove()
+        self.update_instruction("Click 2 tie points on the LEFT image.")
 
     def read_image(self, path, max_size=(450, 450)):
         image = cv2.imread(path)
@@ -119,40 +132,30 @@ class ImageViewerApp(ctk.CTk):
 
     def on_left_image_click(self, event):
         if self.app_state == "selecting_points_left" and len(self.left_points) < 2:
-            if self.left_image_array is not None:
-                h, w = self.left_image_array.shape[:2]
-                x, y = event.x, event.y
-                if 0 <= x < w and 0 <= y < h:
-                    self.left_points.append((x, y))
-                    self.update_instruction(f"Selected point {len(self.left_points)} on LEFT: ({x}, {y})")
-                    self.display_left_image()
-                    if len(self.left_points) == 2:
-                        self.app_state = "selecting_points_right"
-                        self.update_instruction("Now click 2 tie points on the RIGHT image.")
-                else:
-                    self.update_instruction("❗ Please click within the LEFT image bounds.")
+            x, y = event.x, event.y
+            if 0 <= x < self.left_image_array.shape[1] and 0 <= y < self.left_image_array.shape[0]:
+                self.left_points.append((x, y))
+                self.update_instruction(f"Selected point {len(self.left_points)} on LEFT: ({x}, {y})")
+                self.display_left_image()
+                if len(self.left_points) == 2:
+                    self.app_state = "selecting_points_right"
+                    self.update_instruction("Now click 2 tie points on the RIGHT image.")
 
     def on_right_image_click(self, event):
         if self.app_state == "selecting_points_right" and len(self.right_points) < 2:
-            if self.right_image_array is not None:
-                h, w = self.right_image_array.shape[:2]
-                x, y = event.x, event.y
-                if 0 <= x < w and 0 <= y < h:
-                    self.right_points.append((x, y))
-                    self.update_instruction(f"Selected point {len(self.right_points)} on RIGHT: ({x}, {y})")
-                    self.display_right_image()
-                    if len(self.right_points) == 2:
-                        self.app_state = "tie_points_done"
-                        self.update_instruction("✅ Tie point selection complete. Ready for stitching.")
-                        self.merge_button.configure(state="normal")
-                else:
-                    self.update_instruction("❗ Please click within the RIGHT image bounds.")
+            x, y = event.x, event.y
+            if 0 <= x < self.right_image_array.shape[1] and 0 <= y < self.right_image_array.shape[0]:
+                self.right_points.append((x, y))
+                self.update_instruction(f"Selected point {len(self.right_points)} on RIGHT: ({x}, {y})")
+                self.display_right_image()
+                if len(self.right_points) == 2:
+                    self.app_state = "tie_points_done"
+                    self.update_instruction("✅ Tie point selection complete. Ready for stitching.")
+                    self.merge_button.grid()
 
     def merge_images(self):
         if len(self.left_points) == 2 and len(self.right_points) == 2:
-            pts_left = np.array(self.left_points, dtype=np.float32)
-            pts_right = np.array(self.right_points, dtype=np.float32)
-            matrix = cv2.estimateAffinePartial2D(pts_right, pts_left, method=cv2.LMEDS)[0]
+            matrix = cv2.estimateAffinePartial2D(np.array(self.right_points), np.array(self.left_points), method=cv2.LMEDS)[0]
             if matrix is not None:
                 h_left, w_left = self.left_image_array.shape[:2]
                 h_right, w_right = self.right_image_array.shape[:2]
@@ -171,21 +174,16 @@ class ImageViewerApp(ctk.CTk):
                 mask = (warped_right > 0).any(axis=2)
                 canvas[mask] = warped_right[mask]
                 self.merged_image_array = canvas
-                self.merged_points = []
-                self.merged_labels = []
                 self.app_state = "selecting_points_merged"
                 self.left_image_label.pack_forget()
                 self.right_image_label.pack_forget()
                 self.merged_image_label = ctk.CTkLabel(self.image_frame, text="", anchor="nw", width=900, height=600)
                 self.merged_image_label.pack(expand=True, padx=20, pady=10)
                 self.merged_image_label.bind("<Button-1>", self.on_merged_image_click)
-                self.merged_image_label.bind("<Motion>", self.on_merged_image_hover)  # NEW
-                self.update_instruction("Click 2 reference points on the MERGED image.")
+                self.merged_image_label.bind("<Motion>", self.on_merged_image_hover)
                 self.display_merged_image()
-            else:
-                self.update_instruction("❗ Could not calculate transformation matrix.")
-        else:
-            self.update_instruction("❗ Need exactly 2 points on each image.")
+                self.update_instruction("Click 2 reference points on the MERGED image.")
+                self.merge_button.grid_remove()
 
     def display_merged_image(self):
         image_copy = self.merged_image_array.copy()
@@ -196,13 +194,9 @@ class ImageViewerApp(ctk.CTk):
 
     def on_merged_image_click(self, event):
         if self.app_state == "selecting_points_merged" and len(self.merged_points) < 2:
-            if self.merged_image_array is not None:
-                h, w = self.merged_image_array.shape[:2]
-                x, y = event.x, event.y
-                if 0 <= x < w and 0 <= y < h:
-                    self.open_custom_input_dialog(x, y)
-                else:
-                    self.update_instruction("❗ Click within the merged image bounds.")
+            x, y = event.x, event.y
+            if 0 <= x < self.merged_image_array.shape[1] and 0 <= y < self.merged_image_array.shape[0]:
+                self.open_custom_input_dialog(x, y)
 
     def open_custom_input_dialog(self, x, y):
         dialog = ctk.CTkToplevel(self)
@@ -226,21 +220,19 @@ class ImageViewerApp(ctk.CTk):
             except ValueError:
                 self.update_instruction("❗ Please enter valid numbers.")
                 return
-
             self.merged_points.append((x, y))
             self.real_world_points.append((real_x, real_y))
             self.merged_labels.append(f"({real_x}, {real_y})")
             dialog.destroy()
             self.display_merged_image()
             self.update_instruction(f"Point {len(self.merged_points)} on MERGED selected.")
-
             if len(self.merged_points) == 2:
                 self.app_state = "merged_points_done"
                 self.update_instruction("✅ Reference points on merged image selected.")
-                img_pts = np.array(self.merged_points, dtype=np.float32)
-                world_pts = np.array(self.real_world_points, dtype=np.float32)
-                self.image_to_world_matrix, _ = cv2.estimateAffinePartial2D(img_pts, world_pts)
+                self.image_to_world_matrix, _ = cv2.estimateAffinePartial2D(np.array(self.merged_points), np.array(self.real_world_points))
                 self.georeference_all_pixels()
+                self.save_button.grid()
+                self.reset_button.grid()
 
         ctk.CTkButton(dialog, text="Submit", command=submit).pack(pady=10)
 
@@ -258,12 +250,53 @@ class ImageViewerApp(ctk.CTk):
 
     def on_merged_image_hover(self, event):
         if self.world_x_map is not None and self.world_y_map is not None:
-            h, w = self.merged_image_array.shape[:2]
             x, y = event.x, event.y
-            if 0 <= x < w and 0 <= y < h:
+            if 0 <= x < self.world_x_map.shape[1] and 0 <= y < self.world_x_map.shape[0]:
                 rx = self.world_x_map[y, x]
                 ry = self.world_y_map[y, x]
                 self.update_instruction(f"Hover: Image ({x}, {y}) → World ({rx:.2f}, {ry:.2f})")
+
+    def save_image(self):
+        if self.merged_image_array is not None:
+            filepath = filedialog.asksaveasfilename(defaultextension=".png",
+                                                    filetypes=[("PNG files", "*.png"), ("JPEG files", "*.jpg")])
+            if filepath:
+                image_rgb = cv2.cvtColor(self.merged_image_array, cv2.COLOR_RGB2BGR)
+                cv2.imwrite(filepath, image_rgb)
+                self.update_instruction(f"✅ Image saved to {filepath}")
+
+    def reset_app(self):
+        self.app_state = "selecting_images"
+        self.left_points.clear()
+        self.right_points.clear()
+        self.merged_image_array = None
+        self.merged_points.clear()
+        self.merged_labels.clear()
+        self.real_world_points.clear()
+        self.image_to_world_matrix = None
+        self.world_x_map = None
+        self.world_y_map = None
+        self.left_image_array = None
+        self.right_image_array = None
+
+        if hasattr(self, 'merged_image_label'):
+            self.merged_image_label.destroy()
+            del self.merged_image_label
+
+        self.left_image_label.pack(side="left", padx=20, pady=10)
+        self.right_image_label.pack(side="right", padx=20, pady=10)
+        self.left_image_label.configure(image="", text="")
+        self.right_image_label.configure(image="", text="")
+
+        self.load_left_button.grid()
+        self.load_right_button.grid()
+        self.done_button.grid_remove()
+        self.merge_button.grid_remove()
+        self.save_button.grid_remove()
+        self.reset_button.grid_remove()
+
+        self.update_instruction("Load both images to begin.")
+
 
 
 if __name__ == "__main__":
