@@ -1,5 +1,6 @@
 import customtkinter as ctk
 import cv2
+import numpy as np
 from PIL import Image
 from customtkinter import CTkImage
 from tkinter import filedialog
@@ -12,12 +13,15 @@ class ImageViewerApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Orthophoto Tool")
-        self.geometry("1000x700")
+        self.geometry("1200x700")
         self.resizable(False, False)
 
         self.app_state = "selecting_images"
         self.left_points = []
         self.right_points = []
+        self.merged_image_array = None
+        self.merged_points = []
+        self.merged_labels = []  # Stores (x, y, label) for merged points
 
         self.left_image_array = None
         self.right_image_array = None
@@ -50,6 +54,10 @@ class ImageViewerApp(ctk.CTk):
 
         self.done_button = ctk.CTkButton(self.button_frame, text="Done", command=self.on_done)
         self.done_button.grid(row=0, column=2, padx=20, pady=10)
+
+        self.merge_button = ctk.CTkButton(self.button_frame, text="Merge Images", command=self.merge_images)
+        self.merge_button.grid(row=0, column=3, padx=20, pady=10)
+        self.merge_button.configure(state="disabled")
 
     def update_instruction(self, text):
         self.instruction_label.configure(text=text)
@@ -88,9 +96,13 @@ class ImageViewerApp(ctk.CTk):
         pil_image = Image.fromarray(image_array)
         return CTkImage(light_image=pil_image, size=pil_image.size)
 
-    def draw_points(self, image, points):
-        for point in points:
+    def draw_points(self, image, points, labels=None):
+        for idx, point in enumerate(points):
             cv2.circle(image, point, radius=3, color=(255, 0, 0), thickness=8)
+            if labels and idx < len(labels):
+                label = labels[idx]
+                cv2.putText(image, label, (point[0]+10, point[1]-10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
         return image
 
     def display_left_image(self):
@@ -120,7 +132,6 @@ class ImageViewerApp(ctk.CTk):
                 else:
                     self.update_instruction("❗ Please click within the LEFT image bounds.")
 
-
     def on_right_image_click(self, event):
         if self.app_state == "selecting_points_right" and len(self.right_points) < 2:
             if self.right_image_array is not None:
@@ -133,9 +144,94 @@ class ImageViewerApp(ctk.CTk):
                     if len(self.right_points) == 2:
                         self.app_state = "tie_points_done"
                         self.update_instruction("✅ Tie point selection complete. Ready for stitching.")
+                        self.merge_button.configure(state="normal")
                 else:
                     self.update_instruction("❗ Please click within the RIGHT image bounds.")
 
+    def merge_images(self):
+        if len(self.left_points) == 2 and len(self.right_points) == 2:
+            pts_left = np.array(self.left_points, dtype=np.float32)
+            pts_right = np.array(self.right_points, dtype=np.float32)
+            matrix = cv2.estimateAffinePartial2D(pts_right, pts_left, method=cv2.LMEDS)[0]
+            if matrix is not None:
+                h_left, w_left = self.left_image_array.shape[:2]
+                h_right, w_right = self.right_image_array.shape[:2]
+                corners = np.array([[0, 0], [w_right, 0], [w_right, h_right], [0, h_right]], dtype=np.float32)
+                warped_corners = cv2.transform(np.array([corners]), matrix)[0]
+                all_points = np.vstack((warped_corners, [[0, 0], [w_left, 0], [w_left, h_left], [0, h_left]]))
+                [xmin, ymin] = np.floor(all_points.min(axis=0)).astype(int)
+                [xmax, ymax] = np.ceil(all_points.max(axis=0)).astype(int)
+                new_width = xmax - xmin
+                new_height = ymax - ymin
+                translation = np.array([[1, 0, -xmin], [0, 1, -ymin]])
+                transform = translation @ np.vstack([matrix, [0, 0, 1]])
+                warped_right = cv2.warpAffine(self.right_image_array, transform[:2], (new_width, new_height))
+                canvas = np.zeros((new_height, new_width, 3), dtype=np.uint8)
+                canvas[-ymin:h_left - ymin, -xmin:w_left - xmin] = self.left_image_array
+                mask = (warped_right > 0).any(axis=2)
+                canvas[mask] = warped_right[mask]
+                self.merged_image_array = canvas
+                self.merged_points = []
+                self.merged_labels = []
+                self.app_state = "selecting_points_merged"
+                self.left_image_label.pack_forget()
+                self.right_image_label.pack_forget()
+                self.merged_image_label = ctk.CTkLabel(self.image_frame, text="", anchor="nw", width=900, height=600)
+                self.merged_image_label.pack(expand=True, padx=20, pady=10)
+                self.merged_image_label.bind("<Button-1>", self.on_merged_image_click)
+                self.update_instruction("Click 2 reference points on the MERGED image.")
+                self.display_merged_image()
+            else:
+                self.update_instruction("❗ Could not calculate transformation matrix.")
+        else:
+            self.update_instruction("❗ Need exactly 2 points on each image.")
+
+    def display_merged_image(self):
+        image_copy = self.merged_image_array.copy()
+        self.draw_points(image_copy, self.merged_points, self.merged_labels)
+        merged_ctkimage = self.convert_to_ctkimage(image_copy)
+        self.merged_image_label.configure(image=merged_ctkimage)
+        self.merged_image_label.image = merged_ctkimage
+
+    def on_merged_image_click(self, event):
+        if self.app_state == "selecting_points_merged" and len(self.merged_points) < 2:
+            if self.merged_image_array is not None:
+                h, w = self.merged_image_array.shape[:2]
+                x, y = event.x, event.y
+                if 0 <= x < w and 0 <= y < h:
+                    self.open_custom_input_dialog(x, y)
+                else:
+                    self.update_instruction("❗ Click within the merged image bounds.")
+
+    def open_custom_input_dialog(self, x, y):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Enter Real-World Coordinates")
+        dialog.geometry("300x200")
+        dialog.grab_set()  # Make it modal
+        dialog.transient(self)  # Keep on top of main window
+        
+        ctk.CTkLabel(dialog, text=f"Real-world X for ({x}, {y}):").pack(pady=5)
+        x_entry = ctk.CTkEntry(dialog)
+        x_entry.pack(pady=5)
+        
+        ctk.CTkLabel(dialog, text=f"Real-world Y for ({x}, {y}):").pack(pady=5)
+        y_entry = ctk.CTkEntry(dialog)
+        y_entry.pack(pady=5)
+        
+        def submit():
+            real_x = x_entry.get()
+            real_y = y_entry.get()
+            label_text = f"({real_x}, {real_y})"
+            self.merged_points.append((x, y))
+            self.merged_labels.append(label_text)
+            dialog.destroy()
+            self.display_merged_image()
+            self.update_instruction(f"Point {len(self.merged_points)} on MERGED selected.")
+            if len(self.merged_points) == 2:
+                self.app_state = "merged_points_done"
+                self.update_instruction("✅ Reference points on merged image selected.")
+        
+        ctk.CTkButton(dialog, text="Submit", command=submit).pack(pady=10)
 
 
 if __name__ == "__main__":
