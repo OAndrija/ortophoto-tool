@@ -4,10 +4,10 @@ import numpy as np
 from PIL import Image
 from customtkinter import CTkImage
 from tkinter import filedialog
+from tkfontawesome import icon_to_image
 
 ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("blue")
-
+ctk.set_default_color_theme("dark-blue")
 
 class ImageViewerApp(ctk.CTk):
     def __init__(self):
@@ -15,6 +15,23 @@ class ImageViewerApp(ctk.CTk):
         self.title("Orthophoto Tool")
         self.geometry("1200x1200")
         self.resizable(False, False)
+
+        self.font_regular = ctk.CTkFont(family="Roboto", size=16)
+        self.font_bold = ctk.CTkFont(family="Roboto", size=16, weight="bold")
+        
+        self.icon_load_left = icon_to_image("image", fill="white", scale_to_width=20)
+        self.icon_load_right = icon_to_image("image", fill="white", scale_to_width=20)
+        self.icon_done = icon_to_image("check", fill="white", scale_to_width=20)
+        self.icon_merge = icon_to_image("object-group", fill="white", scale_to_width=20)
+        self.icon_save = icon_to_image("save", fill="white", scale_to_width=20)
+        self.icon_reset = icon_to_image("redo", fill="white", scale_to_width=20)
+
+        button_style = {
+            "height": 50,
+            "font": self.font_regular,
+            "corner_radius": 10,
+            "compound": "left"
+        }
 
         self.app_state = "selecting_images"
         self.left_points = []
@@ -29,7 +46,11 @@ class ImageViewerApp(ctk.CTk):
         self.left_image_array = None
         self.right_image_array = None
 
-        self.instruction_label = ctk.CTkLabel(self, text="Load both images to begin.", font=ctk.CTkFont(size=16))
+        self.instruction_label = ctk.CTkLabel(
+            self,
+            text="Load both images to begin.",
+            font=self.font_regular
+        )
         self.instruction_label.pack(pady=(20, 5))
 
         self.image_frame = ctk.CTkFrame(self)
@@ -46,27 +67,41 @@ class ImageViewerApp(ctk.CTk):
         self.button_frame = ctk.CTkFrame(self)
         self.button_frame.pack(pady=(5, 15))
 
-        self.load_left_button = ctk.CTkButton(self.button_frame, text="Load Left Image", command=self.load_left_image)
+        self.load_left_button = ctk.CTkButton(
+            self.button_frame, text=" Load Left Image", image=self.icon_load_left, command=self.load_left_image, **button_style
+        )
         self.load_left_button.grid(row=0, column=0, padx=20, pady=10)
 
-        self.load_right_button = ctk.CTkButton(self.button_frame, text="Load Right Image", command=self.load_right_image)
+        self.load_right_button = ctk.CTkButton(
+            self.button_frame, text=" Load Right Image", image=self.icon_load_right, command=self.load_right_image, **button_style
+        )
         self.load_right_button.grid(row=0, column=1, padx=20, pady=10)
 
-        self.done_button = ctk.CTkButton(self.button_frame, text="Done", command=self.on_done)
+        self.done_button = ctk.CTkButton(
+            self.button_frame, text=" Done", image=self.icon_done, command=self.on_done, **button_style
+        )
         self.done_button.grid(row=0, column=2, padx=20, pady=10)
         self.done_button.grid_remove()
 
-        self.merge_button = ctk.CTkButton(self.button_frame, text="Merge Images", command=self.merge_images)
+        self.merge_button = ctk.CTkButton(
+            self.button_frame, text=" Merge Images", image=self.icon_merge, command=self.merge_images, **button_style
+        )
         self.merge_button.grid(row=0, column=3, padx=20, pady=10)
         self.merge_button.grid_remove()
 
-        self.save_button = ctk.CTkButton(self.button_frame, text="Save Image", command=self.save_image)
+        self.save_button = ctk.CTkButton(
+            self.button_frame, text=" Save Image", image=self.icon_save, command=self.save_image, **button_style
+        )
         self.save_button.grid(row=0, column=4, padx=20, pady=10)
         self.save_button.grid_remove()
 
-        self.reset_button = ctk.CTkButton(self.button_frame, text="Reset", command=self.reset_app)
+        self.reset_button = ctk.CTkButton(
+            self.button_frame, text=" Reset", image=self.icon_reset, command=self.reset_app, **button_style
+        )
         self.reset_button.grid(row=0, column=5, padx=20, pady=10)
         self.reset_button.grid_remove()
+
+
 
     def update_instruction(self, text):
         self.instruction_label.configure(text=text)
