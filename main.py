@@ -335,5 +335,5 @@ class OrthophotoTool(ctk.CTk):
 
 
 if __name__ == "__main__":
-    app = ImageViewerApp()
+    app = OrthophotoTool()
     app.mainloop()
