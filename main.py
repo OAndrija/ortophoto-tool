@@ -13,7 +13,7 @@ class ImageViewerApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Orthophoto Tool")
-        self.geometry("1200x700")
+        self.geometry("1200x1000")
         self.resizable(False, False)
 
         self.app_state = "selecting_images"
@@ -21,16 +21,17 @@ class ImageViewerApp(ctk.CTk):
         self.right_points = []
         self.merged_image_array = None
         self.merged_points = []
-        self.merged_labels = []  # Stores (x, y, label) for merged points
-
+        self.merged_labels = []
+        self.real_world_points = []
+        self.image_to_world_matrix = None
+        self.world_x_map = None
+        self.world_y_map = None
         self.left_image_array = None
         self.right_image_array = None
 
-        # Top row - Instructions
         self.instruction_label = ctk.CTkLabel(self, text="Load both images to begin.", font=ctk.CTkFont(size=16))
         self.instruction_label.pack(pady=(20, 5))
 
-        # Middle row - Images
         self.image_frame = ctk.CTkFrame(self)
         self.image_frame.pack(expand=True, fill="both", pady=20, padx=30)
 
@@ -42,7 +43,6 @@ class ImageViewerApp(ctk.CTk):
         self.right_image_label.pack(side="right", padx=20, pady=10)
         self.right_image_label.bind("<Button-1>", self.on_right_image_click)
 
-        # Bottom row - Buttons
         self.button_frame = ctk.CTkFrame(self)
         self.button_frame.pack(pady=(5, 15))
 
@@ -179,6 +179,7 @@ class ImageViewerApp(ctk.CTk):
                 self.merged_image_label = ctk.CTkLabel(self.image_frame, text="", anchor="nw", width=900, height=600)
                 self.merged_image_label.pack(expand=True, padx=20, pady=10)
                 self.merged_image_label.bind("<Button-1>", self.on_merged_image_click)
+                self.merged_image_label.bind("<Motion>", self.on_merged_image_hover)  # NEW
                 self.update_instruction("Click 2 reference points on the MERGED image.")
                 self.display_merged_image()
             else:
@@ -207,31 +208,62 @@ class ImageViewerApp(ctk.CTk):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Enter Real-World Coordinates")
         dialog.geometry("300x200")
-        dialog.grab_set()  # Make it modal
-        dialog.transient(self)  # Keep on top of main window
-        
+        dialog.grab_set()
+        dialog.transient(self)
+
         ctk.CTkLabel(dialog, text=f"Real-world X for ({x}, {y}):").pack(pady=5)
         x_entry = ctk.CTkEntry(dialog)
         x_entry.pack(pady=5)
-        
+
         ctk.CTkLabel(dialog, text=f"Real-world Y for ({x}, {y}):").pack(pady=5)
         y_entry = ctk.CTkEntry(dialog)
         y_entry.pack(pady=5)
-        
+
         def submit():
-            real_x = x_entry.get()
-            real_y = y_entry.get()
-            label_text = f"({real_x}, {real_y})"
+            try:
+                real_x = float(x_entry.get())
+                real_y = float(y_entry.get())
+            except ValueError:
+                self.update_instruction("❗ Please enter valid numbers.")
+                return
+
             self.merged_points.append((x, y))
-            self.merged_labels.append(label_text)
+            self.real_world_points.append((real_x, real_y))
+            self.merged_labels.append(f"({real_x}, {real_y})")
             dialog.destroy()
             self.display_merged_image()
             self.update_instruction(f"Point {len(self.merged_points)} on MERGED selected.")
+
             if len(self.merged_points) == 2:
                 self.app_state = "merged_points_done"
                 self.update_instruction("✅ Reference points on merged image selected.")
-        
+                img_pts = np.array(self.merged_points, dtype=np.float32)
+                world_pts = np.array(self.real_world_points, dtype=np.float32)
+                self.image_to_world_matrix, _ = cv2.estimateAffinePartial2D(img_pts, world_pts)
+                self.georeference_all_pixels()
+
         ctk.CTkButton(dialog, text="Submit", command=submit).pack(pady=10)
+
+    def georeference_all_pixels(self):
+        if self.image_to_world_matrix is not None:
+            h, w = self.merged_image_array.shape[:2]
+            x_coords, y_coords = np.meshgrid(np.arange(w), np.arange(h))
+            pixel_coords = np.stack([x_coords.ravel(), y_coords.ravel()], axis=1).astype(np.float32)
+            ones = np.ones((pixel_coords.shape[0], 1), dtype=np.float32)
+            pixel_coords_aug = np.hstack([pixel_coords, ones])
+            world_coords = pixel_coords_aug @ self.image_to_world_matrix.T
+            self.world_x_map = world_coords[:, 0].reshape(h, w)
+            self.world_y_map = world_coords[:, 1].reshape(h, w)
+            self.update_instruction("🌍 Georeferencing complete for all pixels.")
+
+    def on_merged_image_hover(self, event):
+        if self.world_x_map is not None and self.world_y_map is not None:
+            h, w = self.merged_image_array.shape[:2]
+            x, y = event.x, event.y
+            if 0 <= x < w and 0 <= y < h:
+                rx = self.world_x_map[y, x]
+                ry = self.world_y_map[y, x]
+                self.update_instruction(f"Hover: Image ({x}, {y}) → World ({rx:.2f}, {ry:.2f})")
 
 
 if __name__ == "__main__":
