@@ -13,7 +13,7 @@ class OrthophotoTool(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Orthophoto Tool")
-        self.geometry("1200x1200")
+        self.geometry("1200x900")
         self.resizable(False, False)
 
         self.font_regular = ctk.CTkFont(family="Roboto", size=16)
@@ -190,24 +190,52 @@ class OrthophotoTool(ctk.CTk):
 
     def merge_images(self):
         if len(self.left_points) == 2 and len(self.right_points) == 2:
+            
+            #Mapira desne tačke na leve (Rotacija, skaliranje i translacija)
             matrix = cv2.estimateAffinePartial2D(np.array(self.right_points), np.array(self.left_points), method=cv2.LMEDS)[0]
+            
             if matrix is not None:
+                #Dimenzije dve pocetne slike
                 h_left, w_left = self.left_image_array.shape[:2]
                 h_right, w_right = self.right_image_array.shape[:2]
+                
+                #Koordinate uglova desne slike
                 corners = np.array([[0, 0], [w_right, 0], [w_right, h_right], [0, h_right]], dtype=np.float32)
+                
+                #Transformacija uglova desne slike pomoću afine matrice
                 warped_corners = cv2.transform(np.array([corners]), matrix)[0]
+                
+                #Kombinovanje svih uglova (transformisanih desne i originalnih leve slike)
                 all_points = np.vstack((warped_corners, [[0, 0], [w_left, 0], [w_left, h_left], [0, h_left]]))
+                
+                #Izračunavanje minimalnih i maksimalnih koordinata nove slike
                 [xmin, ymin] = np.floor(all_points.min(axis=0)).astype(int)
                 [xmax, ymax] = np.ceil(all_points.max(axis=0)).astype(int)
+                
+                #Širina i visina nove slike
                 new_width = xmax - xmin
                 new_height = ymax - ymin
+                
+                #Primenjujemo translaciju da bismo izbegli negativne koordinate
                 translation = np.array([[1, 0, -xmin], [0, 1, -ymin]])
+                
+                #Kombinujemo translaciju sa afinom matricom
                 transform = translation @ np.vstack([matrix, [0, 0, 1]])
+                
+                #Warpujemo desnu sliku
                 warped_right = cv2.warpAffine(self.right_image_array, transform[:2], (new_width, new_height))
+                
                 canvas = np.zeros((new_height, new_width, 3), dtype=np.uint8)
+                
+                #Ubacujemo levu sliku na odgovarajuće mesto na platnu
                 canvas[-ymin:h_left - ymin, -xmin:w_left - xmin] = self.left_image_array
+                
+                #Maskiranje svih piksela gde desna slika ima podatke (nije crna)
                 mask = (warped_right > 0).any(axis=2)
+                
+                #Ubacujemo desnu sliku preko platna
                 canvas[mask] = warped_right[mask]
+                
                 self.merged_image_array = canvas
                 self.app_state = "selecting_points_merged"
                 self.left_image_label.pack_forget()
